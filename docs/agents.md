@@ -172,8 +172,8 @@ return Answer(text, Usage(input=120, output=300, thinking=200), Thinking(thought
 ```
 
 `thinking` in `Usage` is the part of `output` spent on thinking. OpenAI and Anthropic report it that
-way, so pass their numbers as they are. A provider that counts thinking apart from the answer, such
-as Gemini, is added up: `output` is the answer's tokens plus the thinking's. Leave out what your
+way, so pass their numbers as they are. If a provider counts thinking apart from the answer, as
+Gemini does, add the two: `output` is the answer's tokens plus the thinking's. Leave out what your
 agent does not report.
 
 convy does not guess where an agent keeps its thinking; your `answer` knows. An agent that sends it
@@ -191,10 +191,10 @@ An agent that puts it inside the text, as some open models do with `<think>…</
 ```python
     async def answer(self, message: Message) -> Answer:
         response = await self.http.post("/chat", json={"text": message.text})
-        text = response.raise_for_status().json()["text"]
-        thought, mark, said = text.partition("</think>")
-        if not mark:  # no thinking in this answer
-            return Answer(text)
+        text = response.raise_for_status().json()["text"].strip()
+        thought, mark, said = text.partition("</think>")  # some models leave out the opening tag
+        if not mark:  # cut off while thinking, or no thinking at all
+            thought, said = (text, "") if text.startswith("<think>") else ("", text)
         return Answer(said.strip(), thinking=Thinking(thought.removeprefix("<think>").strip()))
 ```
 

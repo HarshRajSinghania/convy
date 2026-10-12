@@ -27,8 +27,9 @@ judge = ChatJudge(OpenAiModel(gateway, "gpt-4.1-mini"), reviews_agent_thinking=T
 
 Then the judge's model reads the agent's thinking before each answer, marked as thinking the user
 did not see, and judges what the agent said unless a claim is about what it thought, such as "the
-agent checked the refund rules". By default `reviews_agent_thinking` is `False`, and the judge gets
-only what the agent said.
+agent checked the refund rules". Its name ends with `+ agent thinking`, so `convy resume` and
+`convy compare` tell it from the judge without the thinking. By default `reviews_agent_thinking` is
+`False`, and the judge gets only what the agent said.
 
 ## How sure the judge is
 
@@ -93,8 +94,9 @@ Put it in `models.py`, or in a module `models.py` imports, and set `judge=Classi
   folder and the report, so keep keys out of it.
 - An answer with the wrong number of claims, a confidence outside 0 to 1, a grade the claim does not
   have, or a `pass` that does not match the grade also leaves the attempt without a verdict.
-- `reviews_agent_thinking` says whether `decide` gets the agent's thinking. Without it, every
-  answer in the transcript has `NoThinking()`, so the judge cannot see it even by mistake.
+- `reviews_agent_thinking` says whether `decide` gets the agent's thinking. When it is `False`,
+  every answer in the transcript has `NoThinking()`, so the judge cannot see the thinking even by
+  mistake. If the setting can change your judge's verdicts, change `name` with it.
 - `name` is saved with the run. `convy resume` refuses to go on if it changes.
 - Test a judge that calls a service with `httpx2.MockTransport`. Test a judge built on a model
   with the fakes in `convy.fakes`, e.g. `ChatJudge(FakeModel(...))`.
