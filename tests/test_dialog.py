@@ -261,6 +261,15 @@ async def test_checked_refuses_a_grade_the_scenario_does_not_allow(
 def test_as_text_shows_the_thinking_the_transcript_has():
     assert THOUGHT.as_text() == "User: hi\nAgent (thinking): be warm\nAgent: hello"
     assert THOUGHT.without_thinking().as_text() == "User: hi\nAgent: hello"
+    empty = Transcript((Turn(Message("hi"), Answer("hello", thinking=Thinking("")), 1.0),))
+    assert empty.as_text() == "User: hi\nAgent: hello"
+
+
+def test_a_chat_judge_that_reviews_the_thinking_has_another_name():
+    """The setting changes what the judge reads, so resume and compare must see it in the name."""
+    model = FakeModel("{}")
+    assert ChatJudge(model).name == model.name
+    assert ChatJudge(model, reviews_agent_thinking=True).name == f"{model.name} + agent thinking"
 
 
 async def test_simulated_user_never_sees_the_thinking():

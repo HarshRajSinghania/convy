@@ -51,6 +51,16 @@ class Turn(Struct, frozen=True):
     answer: Answer
     seconds: float
 
+    def as_text(self) -> str:
+        """The turn as text, for the judge: the agent's thinking, if the turn has it, on a line
+        before what it said."""
+        match self.answer.thinking:
+            case Thinking(text=text) if text:
+                thought = f"Agent (thinking): {text}\n"
+            case Thinking() | NoThinking():
+                thought = ""
+        return f"User: {self.message.text}\n{thought}Agent: {self.answer.text}"
+
 
 class Transcript(Struct, frozen=True):
     """The record of a dialogue. It never changes: adding a turn gives a new transcript."""
@@ -72,17 +82,8 @@ class Transcript(Struct, frozen=True):
         )
 
     def as_text(self) -> str:
-        """The dialogue as text, for the judge: the agent's thinking, if the transcript has it,
-        on a line before what it said."""
-        return "\n".join(self.lines(turn) for turn in self.turns)
-
-    def lines(self, turn: Turn) -> str:
-        match turn.answer.thinking:
-            case Thinking(text=text) if text:
-                thought = f"Agent (thinking): {text}\n"
-            case _:
-                thought = ""
-        return f"User: {turn.message.text}\n{thought}Agent: {turn.answer.text}"
+        """The dialogue as text, for the judge, turn by turn."""
+        return "\n".join(turn.as_text() for turn in self.turns)
 
     def as_chat(self) -> list[dict[str, str]]:
         """The dialogue for the simulated user: its messages are `assistant`, the agent's `user`."""
@@ -226,8 +227,9 @@ class Judge(Protocol):
 
     @property
     def reviews_agent_thinking(self) -> bool:
-        """Whether the judge reviews the agent's thinking; without it, the judge gets only what
-        the agent said."""
+        """Whether the judge reviews the agent's thinking; if not, it gets only what the agent
+        said. A judge whose verdicts it changes should change its `name` with it, so `convy
+        resume` and `convy compare` see it."""
         ...
 
     async def decide(
@@ -246,7 +248,12 @@ class ChatJudge(Struct, frozen=True):
 
     @property
     def name(self) -> str:
-        return self.model.name
+        """The model's name, marked when the judge reviews the agent's thinking."""
+        return (
+            f"{self.model.name} + agent thinking"
+            if self.reviews_agent_thinking
+            else self.model.name
+        )
 
     async def decide(
         self, transcript: Transcript, claims: tuple[str | Graded, ...]
@@ -337,9 +344,8 @@ class Checked(Struct, frozen=True):
         self, transcript: Transcript, claims: tuple[str | Graded, ...]
     ) -> tuple[Claim, ...]:
         try:
-            seen = (
-                transcript if self.judge.reviews_agent_thinking else transcript.without_thinking()
-            )
+            reviews = self.judge.reviews_agent_thinking is True  # a truthy string is not a yes
+            seen = transcript if reviews else transcript.without_thinking()
             answer = await self.judge.decide(seen, claims)
         except ModelFailure:
             raise
