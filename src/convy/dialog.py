@@ -6,7 +6,7 @@ from typing import Protocol
 import msgspec
 from msgspec import Struct, field
 
-from convy.agent import Answer, Message
+from convy.agent import Answer, Message, NoThinking, Thinking
 from convy.model import Model, ModelFailure
 
 STOP = "###STOP###"
@@ -29,6 +29,8 @@ Instructions:
 
 JUDGE_PROMPT = """Below are a dialogue between a user and an agent, and a numbered list of claims
 about it. Check every claim strictly against the text of the dialogue.
+Lines marked "Agent (thinking)" are what the agent thought; the user did not see them. Judge what
+the agent said, unless a claim is about what it thought.
 Answer with JSON only: {{"claims": [{{"pass": true or false, "reason": "a short explanation"}}, …]}}
 Give one entry per claim, in the order of the list. "pass" is true only if the claim holds.
 A claim that ends with "(grades: …)" is graded: instead of "pass", give "grade", exactly one of
@@ -58,9 +60,29 @@ class Transcript(Struct, frozen=True):
     def with_turn(self, turn: Turn) -> "Transcript":
         return Transcript((*self.turns, turn))
 
+    def without_thinking(self) -> "Transcript":
+        """The same dialogue with only what the agent said."""
+        return Transcript(
+            tuple(
+                msgspec.structs.replace(
+                    turn, answer=msgspec.structs.replace(turn.answer, thinking=NoThinking())
+                )
+                for turn in self.turns
+            )
+        )
+
     def as_text(self) -> str:
-        """The dialogue as text, for the judge."""
-        return "\n".join(f"User: {t.message.text}\nAgent: {t.answer.text}" for t in self.turns)
+        """The dialogue as text, for the judge: the agent's thinking, if the transcript has it,
+        on a line before what it said."""
+        return "\n".join(self.lines(turn) for turn in self.turns)
+
+    def lines(self, turn: Turn) -> str:
+        match turn.answer.thinking:
+            case Thinking(text=text) if text:
+                thought = f"Agent (thinking): {text}\n"
+            case _:
+                thought = ""
+        return f"User: {turn.message.text}\n{thought}Agent: {turn.answer.text}"
 
     def as_chat(self) -> list[dict[str, str]]:
         """The dialogue for the simulated user: its messages are `assistant`, the agent's `user`."""
@@ -202,6 +224,12 @@ class Judge(Protocol):
         """The judge's name, written to the run instead of the judge itself."""
         ...
 
+    @property
+    def reviews_agent_thinking(self) -> bool:
+        """Whether the judge reviews the agent's thinking; without it, the judge gets only what
+        the agent said."""
+        ...
+
     async def decide(
         self, transcript: Transcript, claims: tuple[str | Graded, ...]
     ) -> tuple[Claim, ...]:
@@ -214,6 +242,7 @@ class ChatJudge(Struct, frozen=True):
     """A chat model that judges: it reads the dialogue and decides each claim, with a reason."""
 
     model: Model
+    reviews_agent_thinking: bool = False
 
     @property
     def name(self) -> str:
@@ -291,7 +320,8 @@ class ChatJudge(Struct, frozen=True):
 class Checked(Struct, frozen=True):
     """The same judge, whose answer is checked where it enters: any error of `decide` is
     `ModelFailure`, and so is an answer the run's folder could not hold or that does not give one
-    decision per claim. A judge's bug is never blamed on the agent and never stops a run."""
+    decision per claim. A judge's bug is never blamed on the agent and never stops a run. It
+    gives a judge the agent's thinking only if the judge reviews it."""
 
     judge: Judge
 
@@ -299,11 +329,18 @@ class Checked(Struct, frozen=True):
     def name(self) -> str:
         return self.judge.name
 
+    @property
+    def reviews_agent_thinking(self) -> bool:
+        return self.judge.reviews_agent_thinking
+
     async def decide(
         self, transcript: Transcript, claims: tuple[str | Graded, ...]
     ) -> tuple[Claim, ...]:
         try:
-            answer = await self.judge.decide(transcript, claims)
+            seen = (
+                transcript if self.judge.reviews_agent_thinking else transcript.without_thinking()
+            )
+            answer = await self.judge.decide(seen, claims)
         except ModelFailure:
             raise
         except Exception as error:  # a judge is user code: any bug is a failed model

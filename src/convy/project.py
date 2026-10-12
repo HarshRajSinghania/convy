@@ -46,6 +46,11 @@ class Project(Struct, frozen=True):
                 "models.py: expected a judge, such as judge=ChatJudge(model), "
                 "with a `name` and a `decide` method"
             )
+        if not isinstance(getattr(judge, "reviews_agent_thinking", None), bool):
+            raise ValueError(
+                "models.py: the judge must say whether it reviews the agent's thinking, "
+                "with `reviews_agent_thinking = True` or `False`"
+            )
         return found
 
     def agent(self, name: str) -> ProjectAgent:
