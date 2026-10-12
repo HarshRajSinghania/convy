@@ -22,7 +22,7 @@ An agent may give its thinking apart from its answer ([see how](agents.md#thinki
 it only if it reviews it:
 
 ```python
-judge=ChatJudge(OpenAiModel(gateway, "gpt-4.1-mini"), reviews_agent_thinking=True)
+judge = ChatJudge(OpenAiModel(gateway, "gpt-4.1-mini"), reviews_agent_thinking=True)
 ```
 
 Then the judge's model reads the agent's thinking before each answer, marked as thinking the user
